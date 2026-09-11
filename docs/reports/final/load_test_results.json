@@ -1,0 +1,84 @@
+{
+  "generated_at": "2026-06-02T12:20:30",
+  "target": "http://127.0.0.1:8000/health",
+  "scope_note": "Local HTTP baseline only. This is not a production capacity certification. Authenticated business workflows require a dedicated staging dataset and test accounts.",
+  "requests_per_step": 100,
+  "steps": [
+    {
+      "concurrency": 1,
+      "requests": 100,
+      "successful_requests": 100,
+      "errors": 0,
+      "error_rate_percent": 0.0,
+      "throughput_requests_per_second": 127.24,
+      "latency_ms": {
+        "min": 4.39,
+        "p50": 5.68,
+        "p95": 24.01,
+        "max": 29.21
+      },
+      "docker_stats": "contexte-build-a-full-stack-web-backend-1|6.35%|156.8MiB / 7.669GiB|3.11MB / 2.31MB\ncontexte-build-a-full-stack-web-frontend-1|0.00%|138.7MiB / 7.669GiB|81.2kB / 8.25MB\ncontexte-build-a-full-stack-web-db-1|0.00%|58.85MiB / 7.669GiB|5.99MB / 10MB"
+    },
+    {
+      "concurrency": 5,
+      "requests": 100,
+      "successful_requests": 100,
+      "errors": 0,
+      "error_rate_percent": 0.0,
+      "throughput_requests_per_second": 403.07,
+      "latency_ms": {
+        "min": 7.01,
+        "p50": 11.23,
+        "p95": 16.52,
+        "max": 28.08
+      },
+      "docker_stats": "contexte-build-a-full-stack-web-backend-1|6.55%|156.9MiB / 7.669GiB|3.17MB / 2.4MB\ncontexte-build-a-full-stack-web-frontend-1|0.00%|138.7MiB / 7.669GiB|81.3kB / 8.25MB\ncontexte-build-a-full-stack-web-db-1|0.01%|58.85MiB / 7.669GiB|5.99MB / 10MB"
+    },
+    {
+      "concurrency": 10,
+      "requests": 100,
+      "successful_requests": 100,
+      "errors": 0,
+      "error_rate_percent": 0.0,
+      "throughput_requests_per_second": 281.09,
+      "latency_ms": {
+        "min": 12.77,
+        "p50": 26.1,
+        "p95": 113.51,
+        "max": 127.96
+      },
+      "docker_stats": "contexte-build-a-full-stack-web-backend-1|6.00%|157.2MiB / 7.669GiB|3.23MB / 2.49MB\ncontexte-build-a-full-stack-web-frontend-1|0.00%|138.7MiB / 7.669GiB|81.3kB / 8.25MB\ncontexte-build-a-full-stack-web-db-1|0.01%|58.85MiB / 7.669GiB|5.99MB / 10MB"
+    },
+    {
+      "concurrency": 25,
+      "requests": 100,
+      "successful_requests": 100,
+      "errors": 0,
+      "error_rate_percent": 0.0,
+      "throughput_requests_per_second": 341.47,
+      "latency_ms": {
+        "min": 22.84,
+        "p50": 68.97,
+        "p95": 78.77,
+        "max": 81.31
+      },
+      "docker_stats": "contexte-build-a-full-stack-web-backend-1|6.19%|157.5MiB / 7.669GiB|3.29MB / 2.57MB\ncontexte-build-a-full-stack-web-frontend-1|0.00%|138.7MiB / 7.669GiB|81.3kB / 8.25MB\ncontexte-build-a-full-stack-web-db-1|0.01%|58.85MiB / 7.669GiB|5.99MB / 10MB"
+    },
+    {
+      "concurrency": 50,
+      "requests": 100,
+      "successful_requests": 100,
+      "errors": 0,
+      "error_rate_percent": 0.0,
+      "throughput_requests_per_second": 337.71,
+      "latency_ms": {
+        "min": 21.88,
+        "p50": 124.96,
+        "p95": 145.01,
+        "max": 146.75
+      },
+      "docker_stats": "contexte-build-a-full-stack-web-backend-1|6.77%|157.3MiB / 7.669GiB|3.34MB / 2.66MB\ncontexte-build-a-full-stack-web-frontend-1|0.00%|138.7MiB / 7.669GiB|81.3kB / 8.25MB\ncontexte-build-a-full-stack-web-db-1|0.01%|58.84MiB / 7.669GiB|5.99MB / 10MB"
+    }
+  ],
+  "highest_validated_concurrency": 50
+}
