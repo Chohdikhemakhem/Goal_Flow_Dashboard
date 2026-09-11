@@ -8,3 +8,11 @@ __pycache__/
 backend/.venv/
 frontend/node_modules/
 frontend/dist/
+echo "backend/logs/" >> .gitignore
+git rm -r --cached backend/logs/
+git commit -m "chore: remove logs from tracking"
+git push
+echo "*.dump" >> .gitignore
+git rm --cached *.dump
+git commit -m "chore: remove database dumps from tracking"
+git push
