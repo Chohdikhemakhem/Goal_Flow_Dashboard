@@ -22,6 +22,7 @@ from app.models.entities import (
 )
 from app.services.agent_identity import normalized_agent_name_expression
 from app.services.selection import normalize_agency_ids
+from app.services.data_scope import get_user_data_scope, region_scope_condition
 
 FRENCH_MONTH_NAMES = {
     1: "Janvier",
@@ -1143,6 +1144,7 @@ def get_taeg_monthly_history(
     period: str,
     agency_id: str | None,
     agent_id: int | None,
+    user: User | None = None,
 ) -> dict:
     year, month = _period_parts(period)
     filters = [
@@ -1154,6 +1156,10 @@ def get_taeg_monthly_history(
         filters.append(TaegDailySnapshot.agency_id.in_(selected_agency_ids))
     if agent_id is not None:
         filters.append(TaegDailySnapshot.agent_id == agent_id)
+    if user is not None:
+        regional_condition = region_scope_condition(Agency.name, get_user_data_scope(user).region)
+        if regional_condition is not None:
+            filters.append(regional_condition)
 
     rows = db.execute(
         select(
@@ -1169,6 +1175,8 @@ def get_taeg_monthly_history(
             ).label("acm_weighted_numerator"),
             func.sum(case((TaegDailySnapshot.status == STATUS_NON_COUVERT, 1), else_=0)).label("non_couvert_count"),
         )
+        .select_from(TaegDailySnapshot)
+        .join(Agency, Agency.id == TaegDailySnapshot.agency_id)
         .where(*filters)
         .group_by(
             TaegDailySnapshot.snapshot_date,

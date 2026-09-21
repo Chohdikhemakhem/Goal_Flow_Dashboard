@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.models.entities import Agency, Agent, ImportBatch, LoanRaw, ParReductionTarget, User
 from app.models.enums import ImportBatchType, UserRole
 from app.services.agent_identity import normalized_agent_name_expression
-from app.services.data_scope import get_user_data_scope
+from app.services.data_scope import get_user_data_scope, region_scope_condition
 from app.services.selection import normalize_agency_ids
 
 PAR_REDUCTION_KEYS = ("par30", "cohort_1_15", "cohort_16_30")
@@ -197,6 +197,18 @@ def resolve_reduction_scope(user: User, agency_id: str | None, agent_id: int | N
     return agency_id, agent_id
 
 
+def _enforce_regional_agency_scope(db: Session, user: User, agency_id: str | None) -> str | None:
+    """Intersects an optional request filter with the role-derived SQL scope."""
+    regional_condition = region_scope_condition(Agency.name, get_user_data_scope(user).region)
+    if regional_condition is None:
+        return agency_id
+    permitted = set(db.scalars(select(Agency.id).where(regional_condition)).all())
+    requested = set(normalize_agency_ids(agency_id=agency_id))
+    effective = sorted(permitted & requested) if requested else sorted(permitted)
+    # An out-of-region agency intentionally becomes an empty IN predicate.
+    return ",".join(str(item) for item in effective) if effective else "0"
+
+
 def reduction_metric(initial: Decimal, current: Decimal, target_to_reach: Decimal) -> dict[str, Decimal | bool | str | None]:
     reduction_required = initial - target_to_reach
     reduction_realized = initial - current
@@ -225,6 +237,7 @@ def reduction_metric(initial: Decimal, current: Decimal, target_to_reach: Decima
 
 def compute_par_reduction(db: Session, *, month: int, year: int, user: User, agency_id: str | None = None, agent_id: int | None = None) -> dict:
     agency_id, agent_id = resolve_reduction_scope(user, agency_id, agent_id)
+    agency_id = _enforce_regional_agency_scope(db, user, agency_id)
     today = date.today()
     period_end = date(year, month, monthrange(year, month)[1])
     as_of = min(today, period_end)
@@ -335,6 +348,7 @@ def compute_par_reduction_evolution(
     agent_id: int | None = None,
 ) -> list[dict]:
     agency_id, agent_id = resolve_reduction_scope(user, agency_id, agent_id)
+    agency_id = _enforce_regional_agency_scope(db, user, agency_id)
     today = date.today()
     period_start = date(year, month, 1)
     period_end = date(year, month, monthrange(year, month)[1])

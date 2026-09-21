@@ -70,7 +70,7 @@ from app.services.selection import normalize_agency_ids
 router = APIRouter(
     prefix="/taeg",
     tags=["taeg"],
-    dependencies=[Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.COMMITTEE_MEMBER, UserRole.AGENCY_MANAGER, UserRole.PORTFOLIO_MANAGER]))],
+    dependencies=[Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.COMMITTEE_MEMBER, UserRole.AGENCY_MANAGER, UserRole.PORTFOLIO_MANAGER, UserRole.REGIONAL_MANAGER_NORD, UserRole.REGIONAL_MANAGER_SUD]))],
 )
 
 TAEG_EXPORT_COLUMNS = [
@@ -323,7 +323,7 @@ def _build_taeg_excel_buffer(
 @router.get(
     "/periods",
     response_model=list[TaegPeriodRead],
-    dependencies=[Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.COMMITTEE_MEMBER, UserRole.AGENCY_MANAGER, UserRole.PORTFOLIO_MANAGER]))],
+    dependencies=[Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.COMMITTEE_MEMBER, UserRole.AGENCY_MANAGER, UserRole.PORTFOLIO_MANAGER, UserRole.REGIONAL_MANAGER_NORD, UserRole.REGIONAL_MANAGER_SUD]))],
 )
 def get_taeg_periods(
     db: Session = Depends(get_db),
@@ -338,7 +338,7 @@ def get_taeg_periods(
 @router.get(
     "/dashboard",
     response_model=TaegDashboardRead,
-    dependencies=[Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.COMMITTEE_MEMBER, UserRole.AGENCY_MANAGER, UserRole.PORTFOLIO_MANAGER]))],
+    dependencies=[Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.COMMITTEE_MEMBER, UserRole.AGENCY_MANAGER, UserRole.PORTFOLIO_MANAGER, UserRole.REGIONAL_MANAGER_NORD, UserRole.REGIONAL_MANAGER_SUD]))],
 )
 def get_taeg_dashboard(
     period_key: str | None = None,
@@ -371,7 +371,7 @@ def get_taeg_dashboard(
 
 @router.get(
     "/export.xlsx",
-    dependencies=[Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.COMMITTEE_MEMBER, UserRole.AGENCY_MANAGER, UserRole.PORTFOLIO_MANAGER]))],
+    dependencies=[Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.COMMITTEE_MEMBER, UserRole.AGENCY_MANAGER, UserRole.PORTFOLIO_MANAGER, UserRole.REGIONAL_MANAGER_NORD, UserRole.REGIONAL_MANAGER_SUD]))],
 )
 def export_taeg_excel(
     period_key: str | None = None,
@@ -472,7 +472,7 @@ def export_taeg_excel(
 @router.get(
     "/details",
     response_model=Page[TaegCreditDetailRead],
-    dependencies=[Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.COMMITTEE_MEMBER, UserRole.AGENCY_MANAGER, UserRole.PORTFOLIO_MANAGER]))],
+    dependencies=[Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.COMMITTEE_MEMBER, UserRole.AGENCY_MANAGER, UserRole.PORTFOLIO_MANAGER, UserRole.REGIONAL_MANAGER_NORD, UserRole.REGIONAL_MANAGER_SUD]))],
 )
 def get_taeg_details(
     period_key: str | None = None,
@@ -520,7 +520,7 @@ def get_taeg_details(
 @router.get(
     "/monthly-history/periods",
     response_model=list[TaegMonthlyHistoryPeriodRead],
-    dependencies=[Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.COMMITTEE_MEMBER, UserRole.AGENCY_MANAGER, UserRole.PORTFOLIO_MANAGER]))],
+    dependencies=[Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.COMMITTEE_MEMBER, UserRole.AGENCY_MANAGER, UserRole.PORTFOLIO_MANAGER, UserRole.REGIONAL_MANAGER_NORD, UserRole.REGIONAL_MANAGER_SUD]))],
 )
 def get_taeg_monthly_history_periods(
     db: Session = Depends(get_db),
@@ -534,7 +534,7 @@ def get_taeg_monthly_history_periods(
 @router.get(
     "/monthly-history",
     response_model=TaegMonthlyHistoryRead,
-    dependencies=[Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.COMMITTEE_MEMBER, UserRole.AGENCY_MANAGER, UserRole.PORTFOLIO_MANAGER]))],
+    dependencies=[Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.COMMITTEE_MEMBER, UserRole.AGENCY_MANAGER, UserRole.PORTFOLIO_MANAGER, UserRole.REGIONAL_MANAGER_NORD, UserRole.REGIONAL_MANAGER_SUD]))],
 )
 def get_taeg_monthly_history_endpoint(
     period: str,
@@ -551,6 +551,7 @@ def get_taeg_monthly_history_endpoint(
             period=period,
             agency_id=agency_id,
             agent_id=agent_id,
+            user=user,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail={"code": "taeg_monthly_history_error", "message": str(exc)}) from exc

@@ -7,7 +7,7 @@ from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.entities import ActivitySector, Agency, Agent, User
 from app.models.enums import UserRole
-from app.services.data_scope import get_user_data_scope
+from app.services.data_scope import get_user_data_scope, region_scope_condition
 from app.services.selection import normalize_agency_ids
 from app.services.portfolio_identity import matching_agent_ids_query, user_portfolio_identity_key
 from app.schemas.common import Page
@@ -16,7 +16,7 @@ from app.schemas.domain import ActivitySectorRead, AgencyRead, AgentRead, Featur
 router = APIRouter(
     prefix="/lookups",
     tags=["lookups"],
-    dependencies=[Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.COMMITTEE_MEMBER, UserRole.AGENCY_MANAGER, UserRole.PORTFOLIO_MANAGER]))],
+    dependencies=[Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.COMMITTEE_MEMBER, UserRole.AGENCY_MANAGER, UserRole.PORTFOLIO_MANAGER, UserRole.REGIONAL_MANAGER_NORD, UserRole.REGIONAL_MANAGER_SUD]))],
 )
 
 
@@ -36,6 +36,10 @@ def list_agencies(
     scope = get_user_data_scope(user)
     query = select(Agency).order_by(Agency.name)
     count_query = select(func.count(Agency.id))
+    regional_condition = region_scope_condition(Agency.name, scope.region)
+    if regional_condition is not None:
+        query = query.where(regional_condition)
+        count_query = count_query.where(regional_condition)
     if scope.agency_id is not None:
         query = query.where(Agency.id == scope.agency_id)
         count_query = count_query.where(Agency.id == scope.agency_id)
@@ -60,6 +64,10 @@ def list_agents(
     query = select(Agent).order_by(Agent.name)
     count_query = select(func.count(Agent.id))
     effective_agency_ids = normalize_agency_ids(agency_id=agency_id, agency_ids=agency_ids)
+    regional_condition = region_scope_condition(Agency.name, scope.region)
+    if regional_condition is not None:
+        query = query.join(Agency, Agency.id == Agent.agency_id).where(regional_condition)
+        count_query = count_query.select_from(Agent).join(Agency, Agency.id == Agent.agency_id).where(regional_condition)
     if scope.agency_id is not None:
         effective_agency_ids = [scope.agency_id]
     if effective_agency_ids:

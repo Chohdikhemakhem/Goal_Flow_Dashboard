@@ -8,6 +8,8 @@ class UserRole(StrEnum):
     COMMITTEE_MEMBER = "committee_member"
     PORTFOLIO_MANAGER = "portfolio_manager"
     AGENCY_MANAGER = "agency_manager"
+    REGIONAL_MANAGER_NORD = "regional_manager_nord"
+    REGIONAL_MANAGER_SUD = "regional_manager_sud"
 
 
 class ComplaintStatus(StrEnum):

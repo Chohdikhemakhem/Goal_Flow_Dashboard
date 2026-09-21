@@ -27,7 +27,7 @@ from app.schemas.domain import (
 )
 from app.services.agent_identity import normalized_agent_name_expression
 from app.services.bonus import evaluate_bonus_expression
-from app.services.data_scope import get_user_data_scope
+from app.services.data_scope import get_user_data_scope, region_scope_condition
 from app.services.committee_access import (
     closed_month_key,
     is_committee_member,
@@ -46,7 +46,7 @@ from app.services.par_reduction import (
 router = APIRouter(
     prefix="/metrics",
     tags=["metrics"],
-    dependencies=[Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.COMMITTEE_MEMBER, UserRole.AGENCY_MANAGER, UserRole.PORTFOLIO_MANAGER]))],
+    dependencies=[Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.COMMITTEE_MEMBER, UserRole.AGENCY_MANAGER, UserRole.PORTFOLIO_MANAGER, UserRole.REGIONAL_MANAGER_NORD, UserRole.REGIONAL_MANAGER_SUD]))],
 )
 logger = logging.getLogger(__name__)
 
@@ -386,6 +386,9 @@ def _scope_filters(
 ):
     scope = get_user_data_scope(user)
     filters = []
+    regional_condition = region_scope_condition(Agency.name, scope.region)
+    if regional_condition is not None:
+        filters.append(regional_condition)
     if scope.role == UserRole.AGENCY_MANAGER and scope.agency_id is not None:
         if not db.get(Agency, scope.agency_id):
             return [false()]

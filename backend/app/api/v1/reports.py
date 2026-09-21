@@ -30,7 +30,7 @@ from app.models.enums import ImportBatchType, UserRole
 from app.api.v1.metrics import client_potentially_radiable_subquery, calculate_potentially_radiable_threshold
 from app.schemas.domain import SnapshotOptionRead
 from app.services.agent_identity import normalized_agent_name_expression
-from app.services.data_scope import get_user_data_scope
+from app.services.data_scope import get_user_data_scope, region_scope_condition
 from app.services.committee_access import normalize_committee_historical_request
 from app.services.portfolio_identity import matching_agent_ids_query, user_portfolio_identity_key
 from app.services.selection import normalize_agency_ids
@@ -121,6 +121,9 @@ def _metrics_scope_filters(
 ) -> list[object]:
     scope = get_user_data_scope(user)
     filters: list[object] = [scope_filter]
+    regional_condition = region_scope_condition(Agency.name, scope.region)
+    if regional_condition is not None:
+        filters.append(regional_condition)
 
     if scope.role == UserRole.AGENCY_MANAGER:
         if scope.agency_id is None:
@@ -703,6 +706,9 @@ def _portfolio_scope_filters(
 ) -> list[object]:
     scope = get_user_data_scope(user)
     filters: list[object] = []
+    regional_condition = region_scope_condition(Agency.name, scope.region)
+    if regional_condition is not None:
+        filters.append(regional_condition)
 
     if scope.role == UserRole.AGENCY_MANAGER:
         if scope.agency_id is None:
@@ -743,6 +749,15 @@ def _portfolio_scope_filters(
             filters.append(Agent.id == agent_id)
 
     return filters
+
+
+def _regional_default_agency_ids(db: Session, user: User) -> list[int]:
+    """Resolve the report's implicit “all agencies” within a regional role."""
+    scope = get_user_data_scope(user)
+    regional_condition = region_scope_condition(Agency.name, scope.region)
+    if regional_condition is None:
+        return []
+    return db.scalars(select(Agency.id).where(regional_condition).order_by(Agency.id)).all()
 
 
 def _portfolio_report_base_rows(
@@ -1160,7 +1175,7 @@ def _potential_radiation_rows(
 @router.get(
     "/potential-radiation/snapshots",
     response_model=list[SnapshotOptionRead],
-    dependencies=[Depends(require_roles([UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.AGENCY_MANAGER, UserRole.PORTFOLIO_MANAGER]))],
+    dependencies=[Depends(require_roles([UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.AGENCY_MANAGER, UserRole.PORTFOLIO_MANAGER, UserRole.REGIONAL_MANAGER_NORD, UserRole.REGIONAL_MANAGER_SUD]))],
 )
 def list_potential_radiation_snapshots(
     agency_id: int | None = None,
@@ -1763,7 +1778,7 @@ def export_metrics_excel(
     date_from: date | None = None,
     date_to: date | None = None,
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.COMMITTEE_MEMBER])),
+    user: User = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.COMMITTEE_MEMBER, UserRole.REGIONAL_MANAGER_NORD, UserRole.REGIONAL_MANAGER_SUD])),
 ):
     sections = _metrics_export_sections(
         db=db,
@@ -1801,7 +1816,7 @@ def export_metrics_pdf(
     date_from: date | None = None,
     date_to: date | None = None,
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.COMMITTEE_MEMBER])),
+    user: User = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.COMMITTEE_MEMBER, UserRole.REGIONAL_MANAGER_NORD, UserRole.REGIONAL_MANAGER_SUD])),
 ):
     sections = _metrics_export_sections(
         db=db,
@@ -1844,14 +1859,21 @@ def export_portfolio_report_excel(
     date_to: date | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(
-        require_roles([UserRole.PORTFOLIO_MANAGER, UserRole.AGENCY_MANAGER, UserRole.ADMIN, UserRole.SUPER_ADMIN])
+        require_roles([UserRole.PORTFOLIO_MANAGER, UserRole.AGENCY_MANAGER, UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.REGIONAL_MANAGER_NORD, UserRole.REGIONAL_MANAGER_SUD])
     ),
 ):
     effective_agency_ids = normalize_agency_ids(
         agency_id=str(agency_id) if agency_id is not None else None,
         agency_ids=agency_ids,
     )
-    is_admin_export = user.role in {UserRole.ADMIN, UserRole.SUPER_ADMIN}
+    if not effective_agency_ids:
+        effective_agency_ids = _regional_default_agency_ids(db, user)
+    is_admin_export = user.role in {
+        UserRole.ADMIN,
+        UserRole.SUPER_ADMIN,
+        UserRole.REGIONAL_MANAGER_NORD,
+        UserRole.REGIONAL_MANAGER_SUD,
+    }
 
     # Admin / Super Admin: at least one agency is mandatory to produce a meaningful report.
     if is_admin_export:
@@ -1964,7 +1986,12 @@ def export_portfolio_report_excel(
         future_days=future_days,
     )
 
-    if user.role in {UserRole.ADMIN, UserRole.SUPER_ADMIN}:
+    if user.role in {
+        UserRole.ADMIN,
+        UserRole.SUPER_ADMIN,
+        UserRole.REGIONAL_MANAGER_NORD,
+        UserRole.REGIONAL_MANAGER_SUD,
+    }:
         # Grouped view: one table per GP, scoped to the selected agency.
         agency_obj = db.get(Agency, single_agency_id)
         agency_label = agency_obj.name if agency_obj else f"#{single_agency_id}"
@@ -2011,14 +2038,21 @@ def export_portfolio_report_pdf(
     date_to: date | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(
-        require_roles([UserRole.PORTFOLIO_MANAGER, UserRole.AGENCY_MANAGER, UserRole.ADMIN, UserRole.SUPER_ADMIN])
+        require_roles([UserRole.PORTFOLIO_MANAGER, UserRole.AGENCY_MANAGER, UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.REGIONAL_MANAGER_NORD, UserRole.REGIONAL_MANAGER_SUD])
     ),
 ):
     effective_agency_ids = normalize_agency_ids(
         agency_id=str(agency_id) if agency_id is not None else None,
         agency_ids=agency_ids,
     )
-    is_admin_export = user.role in {UserRole.ADMIN, UserRole.SUPER_ADMIN}
+    if not effective_agency_ids:
+        effective_agency_ids = _regional_default_agency_ids(db, user)
+    is_admin_export = user.role in {
+        UserRole.ADMIN,
+        UserRole.SUPER_ADMIN,
+        UserRole.REGIONAL_MANAGER_NORD,
+        UserRole.REGIONAL_MANAGER_SUD,
+    }
 
     # Admin / Super Admin: at least one agency is mandatory to produce a meaningful report.
     if is_admin_export:
@@ -2084,7 +2118,12 @@ def export_portfolio_report_pdf(
         future_days=future_days,
     )
 
-    if user.role in {UserRole.ADMIN, UserRole.SUPER_ADMIN}:
+    if user.role in {
+        UserRole.ADMIN,
+        UserRole.SUPER_ADMIN,
+        UserRole.REGIONAL_MANAGER_NORD,
+        UserRole.REGIONAL_MANAGER_SUD,
+    }:
         # Grouped view: one table per GP, scoped to the selected agency.
         agency_obj = db.get(Agency, single_agency_id)
         agency_label = agency_obj.name if agency_obj else f"#{single_agency_id}"

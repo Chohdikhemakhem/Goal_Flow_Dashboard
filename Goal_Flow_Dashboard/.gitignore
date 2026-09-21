@@ -15,5 +15,4 @@ git push
 echo "*.dump" >> .gitignore
 git rm --cached *.dump
 git commit -m "chore: remove database dumps from tracking"
-git pushGoal_Flow_Dashboard/
-rollback-backup-security-manual/
+git push

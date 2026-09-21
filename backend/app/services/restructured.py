@@ -57,7 +57,7 @@ from app.schemas.restructured import (
     RestructuredTrendChartRead,
     RestructuredTrendPointRead,
 )
-from app.services.data_scope import get_user_data_scope
+from app.services.data_scope import get_user_data_scope, region_scope_condition
 from app.services.selection import normalize_agency_ids
 
 logger = logging.getLogger(__name__)
@@ -3930,6 +3930,9 @@ def _role_scoped_filters(
 ) -> list[object]:
     filters: list[object] = []
     scope = get_user_data_scope(user)
+    regional_condition = region_scope_condition(model.agency_name, scope.region)
+    if regional_condition is not None:
+        filters.append(regional_condition)
 
     def agency_name_by_id(raw_id: int | None) -> str | None:
         if raw_id is None:

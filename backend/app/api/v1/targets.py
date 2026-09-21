@@ -5,21 +5,24 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_current_user, pagination, require_roles
 from app.db.session import get_db
-from app.models.entities import Agent, Target, User
+from app.models.entities import Agency, Agent, Target, User
 from app.models.enums import TargetType, UserRole
 from app.schemas.common import Message, Page
 from app.schemas.domain import TargetCreate, TargetRead, TargetUpdate
-from app.services.data_scope import get_user_data_scope
+from app.services.data_scope import get_user_data_scope, region_scope_condition
 
 router = APIRouter(
     prefix="/targets",
     tags=["targets"],
-    dependencies=[Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.AGENCY_MANAGER, UserRole.PORTFOLIO_MANAGER]))],
+    dependencies=[Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.AGENCY_MANAGER, UserRole.PORTFOLIO_MANAGER, UserRole.REGIONAL_MANAGER_NORD, UserRole.REGIONAL_MANAGER_SUD]))],
 )
 
 
 def _apply_user_scope(user: User, filters: list):
     scope = get_user_data_scope(user)
+    regional_condition = region_scope_condition(Agency.name, scope.region)
+    if regional_condition is not None:
+        filters.append(regional_condition)
     if scope.agency_id is not None:
         filters.append(Target.agency_id == scope.agency_id)
     if scope.agent_id is not None:
@@ -148,13 +151,13 @@ def list_targets(
 ):
     _ensure_target_read_permission(user)
     limit, offset = page
-    query = select(Target).options(
+    query = select(Target).join(Agency, Agency.id == Target.agency_id).options(
         joinedload(Target.agency),
         joinedload(Target.agent),
         joinedload(Target.created_by_user),
         joinedload(Target.updated_by_user),
     )
-    count_query = select(func.count(Target.id))
+    count_query = select(func.count(Target.id)).select_from(Target).join(Agency, Agency.id == Target.agency_id)
     filters = []
     _apply_user_scope(user, filters)
     if target_type:

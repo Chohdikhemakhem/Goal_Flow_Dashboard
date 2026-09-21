@@ -376,6 +376,8 @@ def _migrate_user_roles(connection, engine: Engine) -> None:
             connection.execute(text(f"ALTER TYPE {enum_type} ADD VALUE IF NOT EXISTS 'SUPER_ADMIN'"))
             connection.execute(text(f"ALTER TYPE {enum_type} ADD VALUE IF NOT EXISTS 'SUPPORT'"))
             connection.execute(text(f"ALTER TYPE {enum_type} ADD VALUE IF NOT EXISTS 'COMMITTEE_MEMBER'"))
+            connection.execute(text(f"ALTER TYPE {enum_type} ADD VALUE IF NOT EXISTS 'REGIONAL_MANAGER_NORD'"))
+            connection.execute(text(f"ALTER TYPE {enum_type} ADD VALUE IF NOT EXISTS 'REGIONAL_MANAGER_SUD'"))
             break
         # Do not update rows to SUPER_ADMIN in the same transaction as ALTER TYPE.
         # PostgreSQL requires a commit boundary before the new enum value can be used.

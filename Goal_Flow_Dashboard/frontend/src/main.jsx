@@ -26,6 +26,7 @@ import {
   Users,
   Settings2,
   X,
+  FileWarning,
 } from "lucide-react";
 import {
   Bar,
@@ -44,6 +45,7 @@ import {
   YAxis,
 } from "recharts";
 import { api } from "./api";
+import * as XLSX from "xlsx";
 import "./styles.css";
 
 const DEFAULT_EXPRESSION =
@@ -995,9 +997,6 @@ function applyRoleScopeToFilters(user, baseFilters) {
     scoped.agency_id = "";
     if (user.agent_id) scoped.agent_id = String(user.agent_id);
   }
-  if (user.role === "regional_manager_nord" || user.role === "regional_manager_sud") {
-    scoped.region = user.role === "regional_manager_nord" ? "NORD" : "SUD";
-  }
   return scoped;
 }
 
@@ -1006,13 +1005,11 @@ function canAccessTargets(user) {
     user?.role === "super_admin"
     || user?.role === "agency_manager"
     || user?.role === "portfolio_manager"
-    || user?.role === "regional_manager_nord"
-    || user?.role === "regional_manager_sud"
   );
 }
 
 function canAccessParReduction(user) {
-  return ["super_admin", "admin", "agency_manager", "portfolio_manager", "regional_manager_nord", "regional_manager_sud"].includes(user?.role);
+  return ["super_admin", "admin", "agency_manager", "portfolio_manager"].includes(user?.role);
 }
 
 function canManageParReductionTargets(user) {
@@ -1020,7 +1017,7 @@ function canManageParReductionTargets(user) {
 }
 
 function canAccessTaeg(user) {
-  return user?.role === "super_admin" || user?.role === "admin" || user?.role === "committee_member"|| user?.role === "agency_manager" || user?.role === "portfolio_manager" || user?.role === "regional_manager_nord" || user?.role === "regional_manager_sud";
+  return user?.role === "super_admin" || user?.role === "admin" || user?.role === "committee_member"|| user?.role === "agency_manager";
 }
 
 function canAccessConfiguration(user) {
@@ -1042,19 +1039,11 @@ function displayRoleLabel(role) {
   if (role === "committee_member") return "Membre comité";
   if (role === "agency_manager") return "Chef d'agence";
   if (role === "portfolio_manager") return "Portfolio Manager";
-  if (role === "regional_manager_nord") return "Responsable Regional ";
-  if (role === "regional_manager_sud") return "Responsable Regional ";
   return role || "";
 }
 
 function defaultModuleForUser(user) {
   return user?.role === "support" ? "import" : "dashboard";
-}
-
-function regionalScopeLabel(user) {
-  if (user?.role === "regional_manager_nord") return "Region Nord";
-  if (user?.role === "regional_manager_sud") return "Region Sud";
-  return null;
 }
 
 function useCompactViewport(maxWidth = 1024) {
@@ -2020,7 +2009,7 @@ function Dashboard() {
             )}
             <div>
               <h1>{activeSectionLabel}</h1>
-              <p className="muted">{user?.full_name} - {displayRoleLabel(user?.role)}{regionalScopeLabel(user) ? ` - ${regionalScopeLabel(user)}` : ""}</p>
+              <p className="muted">{user?.full_name} - {displayRoleLabel(user?.role)}</p>
               {showCurrentStateMeta && (
                 <div className="topbar-meta">
                   <span className={hasCurrentStateDate ? "state-date-pill" : "state-date-pill muted-pill"}>
@@ -2159,10 +2148,9 @@ function ReportButtons({
   onCommitteeMonthChange,
 }) {
   const isCommitteeMember = user?.role === "committee_member";
-  const isRegionalReportRole = user?.role === "regional_manager_nord" || user?.role === "regional_manager_sud";
   const isPortfolioExportRole = user?.role === "portfolio_manager" || user?.role === "agency_manager";
-  const isAdminExportRole = user?.role === "admin" || user?.role === "super_admin" || isRegionalReportRole;
-  const canUsePotentialRadiation = ["admin", "super_admin", "agency_manager", "portfolio_manager", "regional_manager_nord", "regional_manager_sud"].includes(user?.role);
+  const isAdminExportRole = user?.role === "admin" || user?.role === "super_admin";
+  const canUsePotentialRadiation = ["admin", "super_admin", "agency_manager", "portfolio_manager"].includes(user?.role);
   const [reportType, setReportType] = useState("");
   const [futureDays, setFutureDays] = useState(3);
   const [exportAgencyId, setExportAgencyId] = useState("");
@@ -2196,9 +2184,10 @@ function ReportButtons({
   const needsFutureDays = reportType === "future_schedules";
   const isPotentialRadiationReport = reportType === "potential_radiation";
   const isFutureDaysValid = Number.isFinite(Number(futureDays)) && Number(futureDays) >= 1 && Number(futureDays) <= 10;
-  // For regional managers, an empty selection means all agencies in their
-  // server-enforced region. ADMIN keeps its existing explicit-selection rule.
-  const requiresAgencySelection = user?.role === "admin" || user?.role === "super_admin";
+  const requiresAgencySelection = isAdminExportRole;
+  // Non-admin scoped roles have their scope enforced server-side; the UI sends
+  // the currently selected filter (or empty for super_admin) and the backend
+  // intersects it with the user's effective scope.
   const scopedUserAgencyId = user?.agency_id ? String(user.agency_id) : "";
   const resolvedPortfolioAgencyId = isAdminExportRole
     ? exportAgencyId
@@ -2219,7 +2208,7 @@ function ReportButtons({
     // - agency_manager: implicit (their agency_id)
     // - portfolio_manager: implicit (portfolio identity, no agency filter)
     let snapshotAgencyFilter = "";
-    if (requiresAgencySelection) {
+    if (isAdminExportRole) {
       if (!resolvedPortfolioAgencyId) {
         setSnapshotOptions([]);
         setSnapshotBatchId("");
@@ -2242,7 +2231,7 @@ function ReportButtons({
     return () => {
       cancelled = true;
     };
-  }, [isPotentialRadiationReport, resolvedPortfolioAgencyId, requiresAgencySelection, scopedUserAgencyId, user?.role]);
+  }, [isPotentialRadiationReport, resolvedPortfolioAgencyId, isAdminExportRole, scopedUserAgencyId, user?.role]);
 
   async function download(type) {
     try {
@@ -6559,6 +6548,130 @@ function ImportScreen({ user, reload, setNotice }) {
 }
 
 function TargetsScreen({ agencies, user, setNotice }) {
+  // ===== HELPER FUNCTIONS FOR EXCEL IMPORT =====
+  // FIX 1: Normalize key (lowercase, remove accents, collapse spaces)
+  function normalizeKey(s) {
+    if (s == null) return '';
+    return s
+      .toString()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()
+      .replace(/\s+/g, ' ');
+  }
+
+  // FIX 2: Distinguish 0 from missing/empty
+  function getNumeric(cellValue) {
+    if (cellValue === null || cellValue === undefined) return null;
+    if (typeof cellValue === 'number') return cellValue;
+    const str = String(cellValue).trim().replace(/\s/g, '').replace(',', '.');
+    if (str === '' || str === '-') return null;
+    const num = Number(str.replace(/[^\d.\-]/g, ''));
+    return isNaN(num) ? null : num;
+  }
+
+  // FIX 3: Agency matching
+  const AGENCY_PREFIX = /^agence\s+/i;
+  function stripAgencyPrefix(name) {
+    return normalizeKey(name).replace(AGENCY_PREFIX, '');
+  }
+
+  const AGENCY_ALIASES = {
+    'ariana':       ['ariana'],
+    'beja':         ['beja'],
+    'ben arous':    ['ben arous', 'benarous'],
+    'bizerte':      ['bizerte'],
+    'djerba':       ['djerba', 'jerba'],
+    'ezahrouni':    ['ezahrouni', 'ezzahrouni', 'ez zahrrouni', 'ezahraouni'],
+    'fahs':         ['fahs', 'el fahs', 'elfahs'],
+    'gabes':        ['gabes'],
+    'gafsa':        ['gafsa'],
+    'jendouba':     ['jendouba', 'jenduba'],
+    'kasserine':    ['kasserine', 'casserine'],
+    'kef':          ['kef', 'el kef', 'elkef'],
+    'mahdia':       ['mahdia'],
+    'nabeul':       ['nabeul'],
+    'sfax':         ['sfax'],
+    'sidi bouzid':  ['sidi bouzid', 'sidi-bouzid'],
+    'siliana':      ['siliana'],
+    'sousse':       ['sousse'],
+    'tozeur':       ['tozeur', 'tozour'],
+    'tcv':          ['tcv', 'tunis', 'tunis centre ville', 'tunis centre', 'tunis cv', 'tunis-centre'],
+  };
+
+  function levenshtein(a, b) {
+    if (a === b) return 0;
+    if (!a.length) return b.length;
+    if (!b.length) return a.length;
+    const dp = Array.from({length: a.length + 1}, () => new Array(b.length + 1).fill(0));
+    for (let i = 0; i <= a.length; i++) dp[i][0] = i;
+    for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+    for (let i = 1; i <= a.length; i++) {
+      for (let j = 1; j <= b.length; j++) {
+        const cost = a[i-1] === b[j-1] ? 0 : 1;
+        dp[i][j] = Math.min(dp[i-1][j] + 1, dp[i][j-1] + 1, dp[i-1][j-1] + cost);
+      }
+    }
+    return dp[a.length][b.length];
+  }
+
+  function similarity(a, b) {
+    if (!a && !b) return 1;
+    if (!a || !b) return 0;
+    if (a === b) return 1;
+    return 1 - levenshtein(a, b) / Math.max(a.length, b.length);
+  }
+
+  function matchAgency(excelName, referentialNames) {
+    const nExcel = normalizeKey(excelName);
+    if (!nExcel) return { matched: null, strategy: 'empty', score: 0 };
+
+    // Skip TOTAL row
+    if (nExcel === 'total' || nExcel.startsWith('total ')) {
+      return { matched: null, strategy: 'skip-total', score: 1 };
+    }
+
+    // Build stripped referential map: {strippedName → originalName}
+    const strippedMap = {};
+    for (const ref of referentialNames) {
+      const stripped = stripAgencyPrefix(ref);
+      if (stripped) strippedMap[stripped] = ref;
+    }
+
+    // Strategy 1: direct normalized match
+    if (strippedMap[nExcel]) {
+      return { matched: strippedMap[nExcel], strategy: 'direct', score: 1 };
+    }
+
+    // Strategy 2: alias match
+    for (const [canonicalRef, aliases] of Object.entries(AGENCY_ALIASES)) {
+      const normalizedAliases = aliases.map(normalizeKey);
+      if (normalizedAliases.includes(nExcel) || canonicalRef === nExcel) {
+        for (const [stripped, original] of Object.entries(strippedMap)) {
+          if (stripped === canonicalRef) {
+            return { matched: original, strategy: 'alias', score: 1 };
+          }
+        }
+      }
+    }
+
+    // Strategy 3: fuzzy match (Levenshtein >= 0.85)
+    let bestMatch = null;
+    let bestScore = 0;
+    for (const stripped of Object.keys(strippedMap)) {
+      const score = similarity(nExcel, stripped);
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = strippedMap[stripped];
+      }
+    }
+    return bestScore >= 0.85
+      ? { matched: bestMatch, strategy: 'fuzzy', score: bestScore }
+      : { matched: null, strategy: 'no-match', score: bestScore };
+  }
+
   const isSuperAdmin = user?.role === "super_admin";
   const isAgencyManager = user?.role === "agency_manager";
   const isPortfolioManager = user?.role === "portfolio_manager";
@@ -6605,6 +6718,32 @@ function TargetsScreen({ agencies, user, setNotice }) {
     target_par_31_60: 0,
     target_par_30: 0,
   });
+
+  // État pour l'import Excel
+  const [excelImportFile, setExcelImportFile] = useState(null);
+  const [excelImportLoading, setExcelImportLoading] = useState(false);
+  const [excelImportPreview, setExcelImportPreview] = useState(null);
+  const [excelImportApplying, setExcelImportApplying] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [excelImportStep, setExcelImportStep] = useState("file"); // "file" | "preview" | "report"
+  const [excelImportDragActive, setExcelImportDragActive] = useState(false);
+  const [excelImportReport, setExcelImportReport] = useState(null);
+
+  // Utilitaire : calcule les 3 prochains jours ouvrés à partir d'aujourd'hui
+  // et retourne { du, au } au format jj/mm/aaaa
+  function getActivePeriod() {
+    const days = [];
+    const current = new Date();
+    current.setHours(0, 0, 0, 0);
+    while (days.length < 3) {
+      const dow = current.getDay();
+      if (dow >= 1 && dow <= 5) days.push(new Date(current));
+      current.setDate(current.getDate() + 1);
+    }
+    const pad = (n) => String(n).padStart(2, "0");
+    const fmt = (d) => `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+    return { du: fmt(days[0]), au: fmt(days[2]) };
+  }
 
   const filterAgencyId = filters.agency_id ? Number(filters.agency_id) : null;
   const filteredAgencyOptions = userAgencyId
@@ -6878,6 +7017,369 @@ function TargetsScreen({ agencies, user, setNotice }) {
       setNotice(err.message);
     }
   }
+
+  // Gestion de l'import Excel d'objectifs (client-side parsing avec xlsx)
+  const handleExcelFileSelect = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setExcelImportFile(file);
+      setExcelImportPreview(null);
+      setExcelImportStep("file");
+      setExcelImportReport(null);
+    }
+  };
+
+  const resetExcelImport = () => {
+    setExcelImportFile(null);
+    setExcelImportPreview(null);
+    setExcelImportReport(null);
+    setExcelImportStep("file");
+  };
+
+  const parseExcelFile = async () => {
+    if (!excelImportFile) return;
+    setExcelImportLoading(true);
+    setExcelImportPreview(null);
+    try {
+      const arrayBuffer = await excelImportFile.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer, { type: "array" });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+
+      // Lire la cellule A1 (titre)
+      const cellA1 = worksheet["A1"];
+      const title = cellA1?.v ? String(cellA1.v).trim() : "";
+
+      // Extraire mois et année du titre (ex: "Objectif Septembre 2026")
+      const monthYearMatch = title.match(/Objectif\s+([a-zA-Z]+)\s+(\d{4})/i);
+      let detectedMonth = null;
+      let detectedYear = null;
+      const MONTH_MAP = {
+        "janvier": 1, "fevrier": 2, "mars": 3, "avril": 4,
+        "mai": 5, "juin": 6, "juillet": 7, "aout": 8,
+        "septembre": 9, "octobre": 10, "novembre": 11, "decembre": 12,
+      };
+      if (monthYearMatch) {
+        const monthName = monthYearMatch[1].toLowerCase();
+        detectedMonth = MONTH_MAP[monthName] || null;
+        detectedYear = parseInt(monthYearMatch[2], 10);
+      }
+
+      const month = detectedMonth || target.month;
+      const year = detectedYear || target.year;
+
+      // FIX 1: Lire les en-têtes de la ligne 2 avec normalisation
+      const headerMap = {}; // normalizedKey -> original header
+      const colMap = {};    // normalizedKey -> column index
+      const range = XLSX.utils.decode_range(worksheet["!ref"] || "A1");
+      for (let col = range.s.c; col <= range.e.c; col++) {
+        const cellAddress = XLSX.utils.encode_cell({ r: 1, c: col }); // Ligne 2 (index 1)
+        const cell = worksheet[cellAddress];
+        if (cell && cell.v != null && String(cell.v).trim() !== '') {
+          const originalHeader = String(cell.v).trim();
+          const norm = normalizeKey(originalHeader);
+          headerMap[norm] = originalHeader;
+          colMap[norm] = col;
+        }
+      }
+
+      // Recherche tolérante des colonnes requises
+      function findColumn(targetNorm) {
+        if (colMap[targetNorm]) return colMap[targetNorm];
+        for (const key of Object.keys(colMap)) {
+          if (key.includes(targetNorm)) return colMap[key];
+        }
+        return null;
+      }
+
+      const colTotalGeneral = findColumn('total general');
+      const colEncoursSain  = findColumn('encours sain');
+      const colPAR0         = findColumn('par 0');
+      const colPAR30        = findColumn('par 30');
+      const colTranches = {};
+      const trancheKeys = [
+        '[1-30]', '[31-60]', '[61-90]', '[91-120]',
+        '[121-150]', '[151-180]', '[181-210]', '[211-240]',
+        '[241-270]', '[271-300]', '[301-330]', '[331-360]'
+      ];
+      for (const t of trancheKeys) {
+        const norm = normalizeKey(t); // e.g. "1 30", "31 60"
+        colTranches[t] = findColumn(norm);
+      }
+
+      const errors = [];
+      const missing = [];
+      if (colTotalGeneral === null) missing.push('Total général');
+      if (colEncoursSain === null) missing.push('Encours sain');
+      if (colPAR0 === null) missing.push('PAR 0');
+      if (colPAR30 === null) missing.push('PAR 30');
+      if (missing.length > 0) {
+        errors.push(`Colonnes manquantes dans l'Excel : ${missing.join(", ")}`);
+      }
+
+      // Lignes de données (à partir de la ligne 3, index 2)
+      const rows = [];
+      const agencyCol = 0;
+      for (let rowIdx = 2; rowIdx <= range.e.r; rowIdx++) {
+        const agencyCell = worksheet[XLSX.utils.encode_cell({ r: rowIdx, c: agencyCol })];
+        if (!agencyCell || !agencyCell.v) continue;
+        const agencyName = String(agencyCell.v).trim();
+        if (agencyName.toUpperCase() === "TOTAL") continue;
+        if (!agencyName) continue;
+
+        const rowData = { agence: agencyName };
+
+        // FIX 2: Utiliser getNumeric pour distinguer 0 de manquant
+        const getVal = (colIdx) => {
+          if (colIdx === null) return null;
+          const cell = worksheet[XLSX.utils.encode_cell({ r: rowIdx, c: colIdx })];
+          return getNumeric(cell?.v);
+        };
+
+        // PAR30 % field in framework multiplies by 100 internally for display
+        // So we must NOT multiply in import - keep as decimal (0.0523)
+        // But guard against malformed Excel with values > 1 (e.g., 5.23 instead of 0.0523)
+        function normalizeDecimalPercentage(raw) {
+          if (raw === null) return null;
+          if (raw > 1) {
+            console.warn(
+              `Valeur PAR30 > 1 detectee (${raw}), conversion en decimal (${raw / 100}). ` +
+              `Le fichier Excel devrait contenir 0.0523 pour 5.23%.`
+            );
+            return raw / 100;
+          }
+          return raw;
+        }
+
+        const valTotalGeneral = getVal(colTotalGeneral);
+        const valEncoursSain = getVal(colEncoursSain);
+        const valPAR0 = getVal(colPAR0);
+        const valPAR30 = getVal(colPAR30);
+
+        rowData['total general'] = valTotalGeneral ?? 0;
+        rowData['encours sain'] = valEncoursSain ?? 0;
+        // PAR0: simple number field, multiply by 100 (0.1365 → 13.65)
+        rowData['par 0'] = valPAR0 !== null ? valPAR0 * 100 : 0;
+        // PAR30%: percentage field in framework, keep as decimal (0.0523)
+        rowData['par 30'] = normalizeDecimalPercentage(valPAR30) ?? 0;
+
+        for (const t of trancheKeys) {
+          const v = getVal(colTranches[t]);
+          rowData[normalizeKey(t)] = v ?? 0;
+        }
+
+        rows.push(rowData);
+      }
+
+      // Mapper les données selon le mapping requis
+      const mappedRows = [];
+      for (const row of rows) {
+        const par1_30 = row['1 30'] || 0;
+        const par31_60 = row['31 60'] || 0;
+        const encoursSain = row['encours sain'] || 0;
+        const totalGeneral = row['total general'] || 0;
+        const par0 = row['par 0'] || 0;
+        const par30 = row['par 30'] || 0;
+
+        // Calculer PAR30 montant = somme des tranches [31-60] à [331-360]
+        let par30Montant = 0;
+        const availableTranches = [];
+        const missingTranches = [];
+        for (const t of trancheKeys.slice(1)) { // skip [1-30]
+          const colIdx = colTranches[t];
+          if (colIdx !== null) {
+            const v = row[normalizeKey(t)] || 0;
+            par30Montant += v;
+            availableTranches.push(t);
+          } else {
+            missingTranches.push(t);
+          }
+        }
+        // Warning seulement si la colonne n'existe PAS dans l'en-tête
+        if (missingTranches.length > 0) {
+          errors.push(`Agence ${row.agence}: colonnes tranches absentes de l'en-tête: ${missingTranches.join(", ")}`);
+        }
+
+        // Calculer Objectif encours = Total general + Encours sain
+        // Si Total general manquant (colonne absente), calculer = somme de toutes les tranches
+        let objectifEncours = totalGeneral + encoursSain;
+        if (colTotalGeneral === null) {
+          let sumTranches = 0;
+          for (const t of trancheKeys) {
+            sumTranches += row[normalizeKey(t)] || 0;
+          }
+          objectifEncours = sumTranches + encoursSain;
+          if (sumTranches > 0) {
+            errors.push(`Agence ${row.agence}: "Total général" absent de l'en-tête, calculé comme somme des tranches`);
+          }
+        }
+
+        mappedRows.push({
+          agency_name: row.agence,
+          target_par_1_30: par1_30,
+          target_par_31_60: par31_60,
+          target_par_30: par30Montant,
+          target_outstanding: objectifEncours,
+          target_healthy_outstanding: encoursSain,
+          target_par_0: par0,
+          target_par: par30,
+        });
+      }
+
+      // FIX 3: Correspondre avec les agences en base via matchAgency
+      const agencyPage = await api.agencies();
+      const dbAgencies = agencyPage.items || [];
+      const referentialNames = dbAgencies.map(a => a.name);
+
+      const validRows = [];
+      const matchedErrors = [];
+      for (const row of mappedRows) {
+        const { matched, strategy, score } = matchAgency(row.agency_name, referentialNames);
+        if (!matched) {
+          if (strategy === 'skip-total') continue;
+          matchedErrors.push({
+            agence: row.agency_name,
+            raison: 'AGENCE_NON_MATCHED',
+            meilleur_score: score.toFixed(2),
+            strategie: strategy,
+          });
+          continue;
+        }
+        console.info(`Match agence: Excel="${row.agency_name}" → Référentiel="${matched}" (stratégie=${strategy}, score=${score.toFixed(2)})`);
+        const agency = dbAgencies.find(a => a.name === matched);
+        validRows.push({ ...row, agency_id: agency.id });
+      }
+
+      // Vérifier les doublons existants
+      let existingCount = 0;
+      const existingAgencies = [];
+      for (const row of validRows) {
+        const existing = await api.targets(
+          clean({
+            target_type: "AGENCY",
+            agency_id: row.agency_id,
+            month: month,
+            year: year,
+            limit: 1,
+            offset: 0,
+          })
+        );
+        if (existing.items && existing.items.length > 0) {
+          existingCount++;
+          existingAgencies.push(row.agency_name);
+        }
+      }
+
+      const preview = {
+        title,
+        month,
+        year,
+        rows: validRows,
+        detected_agencies: rows.length,
+        valid_agencies: validRows.length,
+        existing_count: existingCount,
+        existing_agencies: existingAgencies,
+        errors: [...errors, ...matchedErrors.map(e => `${e.agence}: ${e.raison} (score=${e.meilleur_score}, ${e.strategie})`)],
+      };
+
+      setExcelImportPreview(preview);
+      setExcelImportStep("preview");
+      if (preview.errors.length > 0) {
+        setNotice(`${preview.errors.length} avertissement(s) lors de l'analyse.`);
+      }
+    } catch (err) {
+      setNotice(err.message || "Erreur lors de l'analyse du fichier Excel.");
+      setExcelImportPreview(null);
+    } finally {
+      setExcelImportLoading(false);
+    }
+  };
+
+  const prefillCurrentForm = () => {
+    if (!excelImportPreview || !excelImportPreview.rows?.length) return;
+    const selectedAgencyId = target.agency_id;
+    if (!selectedAgencyId) {
+      setNotice("Veuillez d'abord selectionner une agence dans le formulaire.");
+      return;
+    }
+    const selectedAgency = agencies.find(a => String(a.id) === String(selectedAgencyId));
+    if (!selectedAgency) {
+      setNotice("Agence selectionnee introuvable.");
+      return;
+    }
+    const normalizedSelected = selectedAgency.name.trim().toUpperCase().replace(/\s+/g, " ");
+    const matchedRow = excelImportPreview.rows.find(r => 
+      r.agency_name.trim().toUpperCase().replace(/\s+/g, " ") === normalizedSelected
+    );
+    if (!matchedRow) {
+      setNotice(`Agence "${selectedAgency.name}" introuvable dans le fichier Excel.`);
+      return;
+    }
+
+    // Pre-remplir UNIQUEMENT les champs mappés depuis Excel
+    // NE PAS toucher aux 3 champs non-Excel : target_disbursement_count, target_nb_clients, target_disbursement
+    const { du, au } = getActivePeriod();
+    setTarget(prev => ({
+      ...prev,
+      target_par_1_30: matchedRow.target_par_1_30,
+      target_par_31_60: matchedRow.target_par_31_60,
+      target_par_30: matchedRow.target_par_30,
+      target_outstanding: matchedRow.target_outstanding,
+      target_healthy_outstanding: matchedRow.target_healthy_outstanding,
+      target_par_0: matchedRow.target_par_0,
+      target_par: matchedRow.target_par,
+      // Mettre à jour mois/année si détectés
+      month: excelImportPreview.month || prev.month,
+      year: excelImportPreview.year || prev.year,
+      // Période active calculée automatiquement (3 jours ouvrés)
+      active_from: du,
+      active_until: au,
+    }));
+    setNotice("Formulaire pre-rempli depuis l'Excel (Mode B). Verifiez et cliquez sur Enregistrer.");
+    setShowImportModal(false);
+  };
+
+  const handleImportConfirm = async (action) => {
+    if (!excelImportPreview || !excelImportPreview.rows) return;
+    setExcelImportApplying(true);
+    try {
+      const { du, au } = getActivePeriod();
+      const payload = {
+        month: excelImportPreview.month,
+        year: excelImportPreview.year,
+        rows: excelImportPreview.rows.map((r) => ({
+          ...r,
+          active_from: du,
+          active_until: au,
+        })),
+        action: action,
+      };
+      const result = await api.confirmTargetsImport(payload);
+      setNotice(result.message);
+      
+      // Rapport d'import
+      setExcelImportReport({
+        success: result.imported || 0,
+        updated: result.updated || 0,
+        skipped: result.skipped || 0,
+        errors: [],
+      });
+      setExcelImportStep("report");
+      
+      await loadTargets();
+    } catch (err) {
+      setNotice(err.message || "Erreur lors de l'import.");
+      setExcelImportReport({
+        success: 0,
+        updated: 0,
+        skipped: 0,
+        errors: [err.message || "Erreur inconnue"],
+      });
+      setExcelImportStep("report");
+    } finally {
+      setExcelImportApplying(false);
+    }
+  };
 
   const noAgenciesAvailable = filteredAgencyOptions.length === 0;
   const noAgentsAvailable = scopeType === "AGENT" && target.agency_id && formAgents.length === 0;
@@ -7156,6 +7658,17 @@ function TargetsScreen({ agencies, user, setNotice }) {
             <Save size={16} />
             {editingId ? "Enregistrer modifications" : "Enregistrer objectif"}
           </button>
+          {canWriteObjectives && scopeType === "AGENCY" && (
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => setShowImportModal(true)}
+              disabled={excelImportLoading || excelImportApplying}
+            >
+              <Upload size={16} />
+              Importer Excel
+            </button>
+          )}
           {editingId && (
             <button className="icon-button" type="button" onClick={() => resetForm(scopeType)}>
               Annuler edition
@@ -7163,6 +7676,288 @@ function TargetsScreen({ agencies, user, setNotice }) {
           )}
         </div>
       </div>
+
+      {/* Modal Import Excel - Objectifs mensuels */}
+      {showImportModal && (
+        <div
+          className="modal-backdrop import-modal-backdrop"
+          onClick={() => !excelImportLoading && !excelImportApplying && setShowImportModal(false)}
+        >
+          <div
+            className="modal import-modal-new"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="import-modal-title"
+          >
+            <div className="import-modal-header">
+              <div className="import-modal-title-row">
+                <Upload size={24} className="import-modal-icon" />
+                <div>
+                  <h3 id="import-modal-title">Importer un fichier Excel d&rsquo;objectifs</h3>
+                  <p className="import-modal-subtitle">Pré-remplit automatiquement les objectifs des agences</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="import-modal-close"
+                onClick={() => !excelImportLoading && !excelImportApplying && setShowImportModal(false)}
+                aria-label="Fermer"
+                disabled={excelImportLoading || excelImportApplying}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {excelImportStep === "loading" && (
+              <div className="import-modal-loading">
+                <span className="spinner-large" />
+                <p>Import en cours…</p>
+                <p className="import-modal-loading-subtitle">
+                  Lecture du fichier, mapping des agences, sauvegarde des objectifs…
+                </p>
+              </div>
+            )}
+
+            {excelImportStep === "file" && (
+              <div className="import-modal-body">
+                <div
+                  className={`import-dropzone ${excelImportDragActive ? 'drag-active' : ''}`}
+                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setExcelImportDragActive(true); }}
+                  onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setExcelImportDragActive(false); }}
+                  onDrop={(e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    setExcelImportDragActive(false);
+                    const file = e.dataTransfer.files[0];
+                    if (file && (file.name.endsWith('.xlsx') || file.name.endsWith('.xls'))) {
+                      handleExcelFileSelect({ target: { files: [file] } });
+                    }
+                  }}
+                  onClick={() => !excelImportFile && document.getElementById('excel-file-input')?.click()}
+                >
+                  <input
+                    id="excel-file-input"
+                    type="file"
+                    accept=".xlsx,.xls"
+                    onChange={handleExcelFileSelect}
+                    disabled={excelImportLoading || excelImportApplying}
+                    style={{ display: 'none' }}
+                  />
+                  <Upload size={40} className="import-dropzone-icon" />
+                  <p className="import-dropzone-title">Glissez votre fichier Excel ici</p>
+                  <p className="import-dropzone-subtitle">ou cliquez pour parcourir</p>
+                  <p className="import-dropzone-formats">Formats acceptés : .xlsx, .xls</p>
+                  {excelImportFile && (
+                    <div className="import-dropzone-selected">
+                      <FileDown size={18} className="import-dropzone-file-icon" />
+                      <span className="import-dropzone-file-name">{excelImportFile.name}</span>
+                      <span className="import-dropzone-file-size">
+                        {(excelImportFile.size / 1024).toFixed(1)} KB
+                      </span>
+                      <button
+                        type="button"
+                        className="import-dropzone-change"
+                        onClick={(e) => { e.stopPropagation(); setExcelImportFile(null); }}
+                      >
+                        Changer
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <p className="import-template-hint">
+                  Template requis : Feuille <strong>Feuil1</strong> | Cellule B1 : <strong>{"Objectif <Mois> <Année>"}</strong>
+                  (ex: <code>Objectif Septembre 2026</code>)
+                </p>
+
+                <div className="import-modal-footer">
+                  <button className="secondary" onClick={() => setShowImportModal(false)}>Annuler</button>
+                  <button
+                    className="primary"
+                    onClick={parseExcelFile}
+                    disabled={!excelImportFile || excelImportLoading || excelImportApplying}
+                  >
+                    {excelImportLoading ? <span className="spinner-small" /> : 'Analyser et pré-remplir'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {excelImportStep === "preview" && excelImportPreview && (
+              <div className="import-modal-body">
+                <div className="import-preview-summary">
+                  <div className="import-preview-period">
+                    <span className="label">Période détectée :</span>
+                    <span className="value">{excelImportPreview.month} / {excelImportPreview.year}</span>
+                  </div>
+                  <div className="import-preview-stats">
+                    <span><strong>{excelImportPreview.detected_agencies}</strong> agences détectées</span>
+                    <span><strong>{excelImportPreview.valid_agencies}</strong> agences valides</span>
+                    {excelImportPreview.existing_count > 0 && (
+                      <span className="import-preview-existing">
+                        <strong>{excelImportPreview.existing_count}</strong> objectif(s) existant(s)
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {excelImportPreview.errors && excelImportPreview.errors.length > 0 && (
+                  <div className="import-preview-warnings">
+                    <strong>⚠ Avertissements :</strong>
+                    <ul>
+                      {excelImportPreview.errors.map((err, idx) => (
+                        <li key={idx}>{err}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {excelImportPreview.rows && excelImportPreview.rows.length > 0 && (
+                  <div className="import-table-wrap">
+                    <table className="styled-table">
+                      <thead>
+                        <tr>
+                          <th>Agence</th>
+                          <th>PAR1-30</th>
+                          <th>PAR31-60</th>
+                          <th>PAR30 montant</th>
+                          <th>Encours</th>
+                          <th>Encours sain</th>
+                          <th>PAR0</th>
+                          <th>PAR30 %</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {excelImportPreview.rows.map((row, idx) => (
+                          <tr key={idx}>
+                            <td>{row.agency_name}</td>
+                            <td>{Number(row.target_par_1_30).toLocaleString("fr-FR")}</td>
+                            <td>{Number(row.target_par_31_60).toLocaleString("fr-FR")}</td>
+                            <td>{Number(row.target_par_30).toLocaleString("fr-FR")}</td>
+                            <td>{Number(row.target_outstanding).toLocaleString("fr-FR")}</td>
+                            <td>{Number(row.target_healthy_outstanding).toLocaleString("fr-FR")}</td>
+                            <td>{Number(row.target_par_0).toLocaleString("fr-FR", {minimumFractionDigits: 2, maximumFractionDigits: 2})}%</td>
+                            <td>{Number(row.target_par).toFixed(2)}%</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                <div className="import-modal-footer">
+                  <button className="secondary" onClick={() => setExcelImportStep("file")}>Retour</button>
+                  <button className="icon-button" onClick={resetExcelImport} aria-label="Réinitialiser">
+                    <X size={14} />
+                  </button>
+                  <button
+                    className="secondary"
+                    onClick={() => prefillCurrentForm()}
+                    disabled={excelImportApplying || !excelImportPreview.rows?.length}
+                  >
+                    Pré-remplir le formulaire courant (Mode B)
+                  </button>
+                  <button
+                    className="primary"
+                    onClick={() => { setExcelImportStep("loading"); handleImportConfirm("update"); }}
+                    disabled={excelImportApplying}
+                  >
+                    {excelImportApplying ? 'Importation...' : 'Importer en masse (Mode A)'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {excelImportStep === "report" && excelImportReport && (
+              <div className="import-modal-body import-report-body">
+                <div className="import-report-stats">
+                  <div className="import-stat-card success">
+                    <div className="import-stat-icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    </div>
+                    <div className="import-stat-value">{excelImportReport.success || 0}</div>
+                    <div className="import-stat-label">agences<br />importées</div>
+                  </div>
+                  <div className="import-stat-card warning">
+                    <div className="import-stat-icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                        <line x1="12" y1="9" x2="12" y2="13" />
+                        <line x1="12" y1="17" x2="12.01" y2="17" />
+                      </svg>
+                    </div>
+                    <div className="import-stat-value">{excelImportReport.skipped || 0}</div>
+                    <div className="import-stat-label">agences<br />ignorées</div>
+                  </div>
+                  <div className="import-stat-card error">
+                    <div className="import-stat-icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="15" y1="9" x2="9" y2="15" />
+                        <line x1="9" y1="9" x2="15" y2="15" />
+                      </svg>
+                    </div>
+                    <div className="import-stat-value">{excelImportReport.errors?.length || 0}</div>
+                    <div className="import-stat-label">agences<br />en erreur</div>
+                  </div>
+                </div>
+
+                {excelImportReport.errors && excelImportReport.errors.length > 0 && (
+                  <div className="import-report-detail">
+                    <h4>Détail du rapport</h4>
+                    <div className="import-report-list" role="list">
+                      {excelImportPreview?.rows?.map((row, idx) => {
+                        const isError = excelImportReport.errors?.some(e => e.includes(row.agency_name));
+                        const isSkipped = isError ? false : (excelImportReport.skipped || 0) > 0;
+                        if (isError) {
+                          return (
+                            <div key={idx} className="import-report-item error" role="listitem">
+                              <span className="import-report-icon error">✗</span>
+                              <span className="import-report-agency">{row.agency_name}</span>
+                              <span className="import-report-reason">
+                                {excelImportReport.errors.find(e => e.includes(row.agency_name)) || 'Erreur inconnue'}
+                              </span>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div key={idx} className="import-report-item success" role="listitem">
+                            <span className="import-report-icon success">✓</span>
+                            <span className="import-report-agency">{row.agency_name}</span>
+                            <span className="import-report-reason">
+                              Importée (PAR0: {Number(row.target_par_0).toFixed(2)}%, PAR30: {Number(row.target_par).toFixed(2)}%)
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <div className="import-modal-footer">
+                  {excelImportReport.errors && excelImportReport.errors.length > 0 && (
+                    <button
+                      className="secondary"
+                      onClick={() => { setExcelImportStep("file"); resetExcelImport(); }}
+                    >
+                      Réessayer
+                    </button>
+                  )}
+                  <button
+                    className={excelImportReport.success > 0 ? 'primary' : 'secondary'}
+                    onClick={() => { resetExcelImport(); setShowImportModal(false); }}
+                  >
+                    {excelImportReport.success > 0 ? 'Voir les objectifs' : 'Fermer'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
 
       <div className="panel table-panel">
         <div className="panel-header">
@@ -7967,8 +8762,6 @@ function UsersScreen({ currentUser, agencies, users, reload, setNotice }) {
     if (role === "committee_member") return "Membre comité";
     if (role === "agency_manager") return "Chef d'agence";
     if (role === "portfolio_manager") return "Portfolio Manager";
-    if (role === "regional_manager_nord") return "Responsable Regional ";
-    if (role === "regional_manager_sud") return "Responsable Regional ";
     return role;
   }
 
@@ -8232,7 +9025,7 @@ function UsersScreen({ currentUser, agencies, users, reload, setNotice }) {
                 setForm((prev) => ({
                   ...prev,
                   role: nextRole,
-                  agency_id: (nextRole === "super_admin" || nextRole === "admin" || nextRole === "support" || nextRole === "committee_member" || nextRole === "regional_manager_nord" || nextRole === "regional_manager_sud") ? "" : prev.agency_id,
+                  agency_id: (nextRole === "super_admin" || nextRole === "admin" || nextRole === "support" || nextRole === "committee_member") ? "" : prev.agency_id,
                   agent_id: nextRole === "portfolio_manager" ? prev.agent_id : "",
                 }));
               }}
@@ -8243,23 +9036,18 @@ function UsersScreen({ currentUser, agencies, users, reload, setNotice }) {
               {isSuperAdmin && <option value="committee_member">Membre comité</option>}
               <option value="agency_manager">Chef d'agence</option>
               <option value="portfolio_manager">Portfolio manager</option>
-              {isSuperAdmin && <option value="regional_manager_nord">Responsable Regional Region Nord</option>}
-              {isSuperAdmin && <option value="regional_manager_sud">Responsable Regional Region Sud</option>}
             </select>
           </label>
           <label>Agence
             <select
               value={form.agency_id}
-              disabled={form.role === "super_admin" || form.role === "admin" || form.role === "support" || form.role === "committee_member" || form.role === "regional_manager_nord" || form.role === "regional_manager_sud"}
+              disabled={form.role === "super_admin" || form.role === "admin" || form.role === "support" || form.role === "committee_member"}
               onChange={(e) => setForm({ ...form, agency_id: e.target.value, agent_id: "" })}
             >
               <option value="">Aucune</option>
               {agencies.map((agency) => <option key={agency.id} value={agency.id}>{agency.name}</option>)}
             </select>
           </label>
-          {(form.role === "regional_manager_nord" || form.role === "regional_manager_sud") && (
-            <label>Region<input disabled value={form.role === "regional_manager_nord" ? "Nord" : "Sud"} /></label>
-          )}
           <label>Agent
             <select
               value={form.agent_id}

@@ -30,6 +30,7 @@ from app.services.taeg_history import (
     validate_acm_blocks_for_periods,
 )
 from app.services.selection import normalize_agency_ids
+from app.services.data_scope import get_user_data_scope, region_scope_condition
 
 logger = logging.getLogger(__name__)
 FRENCH_MONTH_NAMES = {
@@ -410,6 +411,7 @@ def _selection_filters(
     sector_id: int | None = None,
     segment: dict | None = None,
     applied_acm_version_expr=None,
+    user: User | None = None,
 ) -> list:
     period_clauses = []
     range_start = segment.get("range_start") if segment else None
@@ -427,6 +429,11 @@ def _selection_filters(
         )
 
     filters = [or_(*period_clauses)] if period_clauses else [false()]
+    if user is not None:
+        scope = get_user_data_scope(user)
+        regional_condition = region_scope_condition(Agency.name, scope.region)
+        if regional_condition is not None:
+            filters.append(regional_condition)
     selected_agency_ids = normalize_agency_ids(agency_id=agency_id)
     if selected_agency_ids:
         filters.append(Agency.id.in_(selected_agency_ids))
@@ -474,6 +481,7 @@ def _enrich_acm_segments(
     segments: list[dict],
     agency_id: int | None,
     agent_id: int | None,
+    user: User,
 ) -> list[dict]:
     if not segments:
         return []
@@ -485,6 +493,7 @@ def _enrich_acm_segments(
             used_periods,
             agency_id=agency_id,
             agent_id=agent_id,
+            user=user,
             segment=segment,
             applied_acm_version_expr=version_expr,
         )
@@ -518,6 +527,7 @@ def calculate_taeg_for_acm_block(
     segment: dict | None,
     agency_id: int | None,
     agent_id: int | None,
+    user: User,
 ) -> list[dict]:
     taeg_amount_expr = _taeg_amount_expr()
     weighted_expr = _weighted_average_expr(taeg_amount_expr)
@@ -528,6 +538,7 @@ def calculate_taeg_for_acm_block(
         used_periods,
         agency_id=agency_id,
         agent_id=agent_id,
+        user=user,
         segment=segment,
         applied_acm_version_expr=version_expr,
     )
@@ -899,6 +910,7 @@ def taeg_dashboard(
         segments=acm_segments,
         agency_id=agency_id,
         agent_id=agent_id,
+        user=user,
     )
     active_segment = _resolve_active_acm_segment(
         acm_segments,
@@ -912,12 +924,14 @@ def taeg_dashboard(
         segment=active_segment,
         agency_id=agency_id,
         agent_id=agent_id,
+        user=user,
     )
 
     active_filters = _selection_filters(
         used_periods,
         agency_id=agency_id,
         agent_id=agent_id,
+        user=user,
         segment=active_segment,
     )
     _log_current_period_debug(db, selection=selection, filters=active_filters, rows=rows)
@@ -960,6 +974,7 @@ def taeg_credit_details(
         segments=acm_segments,
         agency_id=agency_id,
         agent_id=agent_id,
+        user=user,
     )
     active_segment = _resolve_active_acm_segment(
         acm_segments,
@@ -976,6 +991,7 @@ def taeg_credit_details(
         sector_id=sector_id,
         segment=active_segment,
         applied_acm_version_expr=acm_block_version_id_expr,
+        user=user,
     )
     taeg_amount_expr = _taeg_amount_expr()
     sector_acm_case = applied_acm["acm_rate"]

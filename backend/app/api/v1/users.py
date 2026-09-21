@@ -61,7 +61,7 @@ def _validate_role_assignment(
     agency_id: int | None,
     agent_id: int | None,
 ) -> None:
-    if role in {UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.SUPPORT, UserRole.COMMITTEE_MEMBER}:
+    if role in {UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.SUPPORT, UserRole.COMMITTEE_MEMBER, UserRole.REGIONAL_MANAGER_NORD, UserRole.REGIONAL_MANAGER_SUD}:
         if agency_id is not None or agent_id is not None:
             raise HTTPException(
                 status_code=400,
@@ -158,7 +158,7 @@ def _assert_support_user_target_allowed(actor: User, target: User) -> None:
 def _assert_support_role_assignment_allowed(actor: User, role: UserRole) -> None:
     if actor.role != UserRole.SUPPORT:
         return
-    if role in {UserRole.SUPER_ADMIN, UserRole.COMMITTEE_MEMBER}:
+    if role in {UserRole.SUPER_ADMIN, UserRole.COMMITTEE_MEMBER, UserRole.REGIONAL_MANAGER_NORD, UserRole.REGIONAL_MANAGER_SUD}:
         raise HTTPException(
             status_code=403,
             detail={

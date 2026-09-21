@@ -393,7 +393,7 @@ def _base_contract_rows_subquery(
     require_mcr_match = bool(
         agency_id
         or agent_id
-        or scope.role in {UserRole.AGENCY_MANAGER, UserRole.PORTFOLIO_MANAGER}
+        or scope.role in {UserRole.AGENCY_MANAGER, UserRole.PORTFOLIO_MANAGER, UserRole.REGIONAL_MANAGER_NORD, UserRole.REGIONAL_MANAGER_SUD}
     )
     healthy_outstanding = case(
         (func.coalesce(latest_loans.c.days_overdue, 0) == 0, func.coalesce(latest_loans.c.encours, 0)),
@@ -1027,7 +1027,7 @@ def _missing_from_mcr_rows_subquery(
     require_mcr_match = bool(
         agency_id
         or agent_id
-        or scope.role in {UserRole.AGENCY_MANAGER, UserRole.PORTFOLIO_MANAGER}
+        or scope.role in {UserRole.AGENCY_MANAGER, UserRole.PORTFOLIO_MANAGER, UserRole.REGIONAL_MANAGER_NORD, UserRole.REGIONAL_MANAGER_SUD}
     )
     if require_mcr_match:
         return None
