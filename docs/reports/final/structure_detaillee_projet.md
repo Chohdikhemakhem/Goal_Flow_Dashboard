@@ -1,0 +1,103 @@
+# Structure detaillee finale du projet
+
+Inventaire genere automatiquement depuis la version courante du workspace.
+
+## Modules critiques
+
+- `backend/app/api/v1/imports.py`: endpoints d'import et suppression securisee de snapshots.
+- `backend/app/services/imports.py`: workflow CURRENT_STATE, SNAPSHOT, HISTORICAL_MONTH et nettoyage.
+- `backend/app/api/v1/metrics.py`: metriques, chartes et scopes agences/agents.
+- `backend/app/api/v1/reports.py`: exports Excel/PDF.
+- `backend/app/core/security.py`: JWT cookies HttpOnly, rotation, revocation et hashing.
+- `frontend/src/main.jsx`: dashboard React, filtres, tableaux et panneau Super Admin snapshots.
+- `frontend/src/api.js`: appels API centralises.
+
+## Inventaire des fichiers
+
+- `.env`
+- `.env.example`
+- `.gitignore`
+- `backend/.env`
+- `backend/.env.example`
+- `backend/app/__init__.py`
+- `backend/app/api/deps.py`
+- `backend/app/api/v1/__init__.py`
+- `backend/app/api/v1/auth.py`
+- `backend/app/api/v1/bonus.py`
+- `backend/app/api/v1/complaints.py`
+- `backend/app/api/v1/imports.py`
+- `backend/app/api/v1/lookups.py`
+- `backend/app/api/v1/metrics.py`
+- `backend/app/api/v1/reports.py`
+- `backend/app/api/v1/router.py`
+- `backend/app/api/v1/targets.py`
+- `backend/app/api/v1/users.py`
+- `backend/app/assets/fonts/arial.ttf`
+- `backend/app/assets/fonts/arialbd.ttf`
+- `backend/app/assets/fonts/tahoma.ttf`
+- `backend/app/assets/fonts/tahomabd.ttf`
+- `backend/app/core/config.py`
+- `backend/app/core/logging.py`
+- `backend/app/core/security.py`
+- `backend/app/db/base.py`
+- `backend/app/db/migrations.py`
+- `backend/app/db/session.py`
+- `backend/app/main.py`
+- `backend/app/models/__init__.py`
+- `backend/app/models/entities.py`
+- `backend/app/models/enums.py`
+- `backend/app/schemas/auth.py`
+- `backend/app/schemas/common.py`
+- `backend/app/schemas/domain.py`
+- `backend/app/schemas/imports.py`
+- `backend/app/services/agent_identity.py`
+- `backend/app/services/auth_security.py`
+- `backend/app/services/bonus.py`
+- `backend/app/services/data_scope.py`
+- `backend/app/services/imports.py`
+- `backend/app/services/lookups.py`
+- `backend/app/services/metrics.py`
+- `backend/app/services/objective_achievement.py`
+- `backend/app/services/objective_metrics.py`
+- `backend/app/services/user_accounts.py`
+- `backend/dev_microcred.db`
+- `backend/Dockerfile`
+- `backend/Dockerfile.dev`
+- `backend/logs/microcred.log`
+- `backend/microcred.db`
+- `backend/requirements.txt`
+- `backend/sample_data/loans_snapshot_2026-05-10.xlsx`
+- `backend/sample_data/MCR_09052026.xlsx`
+- `backend/scripts/audit_dependencies.py`
+- `backend/scripts/backfill_snapshot_dates.py`
+- `backend/scripts/clean_renewal_pdf.py`
+- `backend/scripts/create_sample_excel.py`
+- `backend/scripts/generate_consolidated_validation_pdf.py`
+- `backend/scripts/generate_env_structure_report.py`
+- `backend/scripts/generate_final_validation_reports.py`
+- `backend/scripts/generate_project_reports_pdf.py`
+- `backend/scripts/generate_qa_report.py`
+- `backend/scripts/prepare_deployment.py`
+- `backend/scripts/run_load_test.py`
+- `backend/scripts/run_security_assessment.py`
+- `backend/scripts/seed.py`
+- `backend/tests/test_security_controls.py`
+- `dev_microcred.db`
+- `docker-compose.prod.yml`
+- `docker-compose.yml`
+- `docs/api.md`
+- `docs/architecture.md`
+- `docs/setup.md`
+- `frontend/Dockerfile`
+- `frontend/Dockerfile.dev`
+- `frontend/index.html`
+- `frontend/nginx.conf`
+- `frontend/package-lock.json`
+- `frontend/package.json`
+- `frontend/src/api.js`
+- `frontend/src/main.jsx`
+- `frontend/src/styles.css`
+- `frontend/vite.config.js`
+- `logs/microcred.log`
+- `README.md`
+- `validation_import.db`
