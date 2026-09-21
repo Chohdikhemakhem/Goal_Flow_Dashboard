@@ -6605,6 +6605,11 @@ function TargetsScreen({ agencies, user, setNotice }) {
     target_par_31_60: 0,
     target_par_30: 0,
   });
+  const [objectiveImport, setObjectiveImport] = useState({ file: null, preview: null, loading: false, choosingMode: false });
+  const [objectiveImportPeriod, setObjectiveImportPeriod] = useState({ month: "", year: "" });
+  const [objectiveImportDragging, setObjectiveImportDragging] = useState(false);
+  const objectiveImportInputId = useId();
+  const objectiveImportInputRef = useRef(null);
 
   const filterAgencyId = filters.agency_id ? Number(filters.agency_id) : null;
   const filteredAgencyOptions = userAgencyId
@@ -6685,6 +6690,72 @@ function TargetsScreen({ agencies, user, setNotice }) {
       setTargetPage(page);
     } catch (err) {
       setNotice(err.message);
+    }
+  }
+
+  async function analyseObjectivesExcel(file, period = {}) {
+    if (!file) return;
+    setObjectiveImport({ file, preview: null, loading: true, choosingMode: false });
+    try {
+      const preview = await api.previewObjectivesExcel(file, period);
+      setObjectiveImport({ file, preview, loading: false, choosingMode: false });
+      if (preview.errors?.length) {
+        setNotice("Certaines lignes ne seront pas importées : consultez les erreurs dans l’aperçu.");
+      }
+    } catch (err) {
+      setObjectiveImport({ file, preview: null, loading: false, choosingMode: false });
+      setNotice(err.message);
+    }
+  }
+
+  function onObjectivesExcelSelected(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    selectObjectivesExcelFile(file);
+    event.target.value = "";
+  }
+
+  function selectObjectivesExcelFile(file) {
+    if (!file.name?.toLowerCase().endsWith(".xlsx")) {
+      setNotice("Format non autorise : selectionnez un fichier Excel .xlsx.");
+      return;
+    }
+    setObjectiveImportPeriod({ month: "", year: "" });
+    setObjectiveImport({ file, preview: null, loading: false, choosingMode: false });
+  }
+
+  function onObjectivesExcelDrop(event) {
+    event.preventDefault();
+    setObjectiveImportDragging(false);
+    const file = event.dataTransfer.files?.[0];
+    if (file) selectObjectivesExcelFile(file);
+  }
+
+  function clearObjectivesExcelSelection() {
+    setObjectiveImport({ file: null, preview: null, loading: false, choosingMode: false });
+    setObjectiveImportPeriod({ month: "", year: "" });
+  }
+
+  function formatObjectivesExcelFileSize(size) {
+    if (!Number.isFinite(size)) return "-";
+    return size < 1024 * 1024
+      ? `${Math.max(1, Math.round(size / 1024))} KB`
+      : `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  async function confirmObjectivesExcel(mode) {
+    const { file, preview } = objectiveImport;
+    if (!file || !preview || !preview.can_import || !preview.period_available) return;
+    setObjectiveImport((current) => ({ ...current, loading: true, choosingMode: false }));
+    try {
+      const period = preview.period_detected ? {} : objectiveImportPeriod;
+      const result = await api.confirmObjectivesExcel(file, mode, period);
+      setObjectiveImport({ file: null, preview: null, loading: false, choosingMode: false });
+      setNotice(`Les objectifs de ${result.period_label} ont été importés avec succès (${result.imported} créés, ${result.updated} mis à jour, ${result.skipped} ignorés).`);
+      await loadTargets();
+    } catch (err) {
+      setObjectiveImport((current) => ({ ...current, loading: false, choosingMode: false }));
+      setNotice(err.message || "L'import a échoué. Aucun objectif n'a été modifié.");
     }
   }
 
@@ -7023,6 +7094,109 @@ function TargetsScreen({ agencies, user, setNotice }) {
     <section className="targets-stack">
       <div className="panel">
         <h3>Objectifs mensuels</h3>
+        {isSuperAdmin && (
+          <div className="objectives-excel-import" aria-busy={objectiveImport.loading}>
+            <div className="objectives-import-card-header">
+              <span className="objectives-import-icon" aria-hidden="true"><BarChart3 size={20} /></span>
+              <div>
+                <p className="eyebrow">Import sécurisé</p>
+                <h3>Import des objectifs Excel</h3>
+                <p className="muted">Importez les objectifs mensuels depuis un fichier Excel (.xlsx). Les données sont vérifiées avant toute confirmation.</p>
+              </div>
+            </div>
+            <input
+              ref={objectiveImportInputRef}
+              id={objectiveImportInputId}
+              className="visually-hidden"
+              type="file"
+              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              onChange={onObjectivesExcelSelected}
+              disabled={objectiveImport.loading}
+            />
+            {!objectiveImport.file && (
+              <div
+                className={`objectives-import-dropzone ${objectiveImportDragging ? "is-dragging" : ""}`}
+                role="button"
+                tabIndex={objectiveImport.loading ? -1 : 0}
+                aria-label="Sélectionner un fichier Excel à importer"
+                onClick={() => objectiveImportInputRef.current?.click()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    objectiveImportInputRef.current?.click();
+                  }
+                }}
+                onDragEnter={(event) => { event.preventDefault(); setObjectiveImportDragging(true); }}
+                onDragOver={(event) => event.preventDefault()}
+                onDragLeave={() => setObjectiveImportDragging(false)}
+                onDrop={onObjectivesExcelDrop}
+              >
+                <Upload size={24} aria-hidden="true" />
+                <strong>Glissez-déposez votre fichier ici</strong>
+                <span className="muted">ou</span>
+                <span className="primary fit" aria-hidden="true">Sélectionner un fichier</span>
+              </div>
+            )}
+            {objectiveImport.file && !objectiveImport.preview && (
+              <div className="objectives-import-file-ready">
+                <div className="objectives-import-file-name"><Upload size={18} aria-hidden="true" /><div><strong>{objectiveImport.file.name}</strong><span>{formatObjectivesExcelFileSize(objectiveImport.file.size)}</span></div></div>
+                <div className="button-row"><button type="button" className="icon-button" disabled={objectiveImport.loading} onClick={clearObjectivesExcelSelection}>Retirer</button><button type="button" className="primary fit" disabled={objectiveImport.loading} onClick={() => analyseObjectivesExcel(objectiveImport.file)}>Analyser le fichier</button></div>
+              </div>
+            )}
+            <div className="objectives-import-reassurance"><span>✓ Format accepté : .xlsx</span><span>✓ Vérification avant import</span><span>✓ Aucune donnée modifiée sans confirmation</span></div>
+            {objectiveImport.loading && <div className="objectives-import-loading" role="status"><span className="loading-dot" aria-hidden="true" />{objectiveImport.preview ? "Import des objectifs..." : "Analyse du fichier..."}</div>}
+            {objectiveImport.preview && (
+              <div className="objectives-import-preview">
+                <div className="import-preview-summary">
+                  <span><strong>Période :</strong> {objectiveImport.preview.period_label || "à sélectionner"}</span>
+                  <span><strong>Agences détectées :</strong> {objectiveImport.preview.detected_agencies}</span>
+                  <span><strong>Agences valides :</strong> {objectiveImport.preview.valid_agencies}</span>
+                  <span><strong>Agences inconnues :</strong> {objectiveImport.preview.unknown_agencies}</span>
+                  <span><strong>Objectifs existants :</strong> {objectiveImport.preview.existing_count}</span>
+                </div>
+                {!objectiveImport.preview.period_available && (
+                  <div className="form-grid import-period-picker">
+                    <label>Mois
+                      <select value={objectiveImportPeriod.month} onChange={(e) => setObjectiveImportPeriod({ ...objectiveImportPeriod, month: e.target.value })}>
+                        <option value="">Choisir</option>
+                        {["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"].map((label, index) => <option key={label} value={index + 1}>{label}</option>)}
+                      </select>
+                    </label>
+                    <label>Année<input type="number" min="2000" value={objectiveImportPeriod.year} onChange={(e) => setObjectiveImportPeriod({ ...objectiveImportPeriod, year: e.target.value })} /></label>
+                    <div className="button-row align-end"><button type="button" className="icon-button" disabled={!objectiveImportPeriod.month || !objectiveImportPeriod.year || objectiveImport.loading} onClick={() => analyseObjectivesExcel(objectiveImport.file, objectiveImportPeriod)}>Analyser la période</button></div>
+                  </div>
+                )}
+                {objectiveImport.preview.errors?.length > 0 && (
+                  <div className="import-errors" role="alert">
+                    {objectiveImport.preview.errors.map((error, index) => <div key={`${error}-${index}`}>{error}</div>)}
+                  </div>
+                )}
+                <p className="muted">Champs calculés : PAR30 montant = cohortes [31-60] à [331-360] ; objectif encours = Total général + Encours sain.</p>
+                <div className="table-scroll">
+                  <table className="objectives-import-table">
+                    <thead><tr><th>Agence</th><th>PAR1-30</th><th>PAR31-60</th><th>PAR30 montant (calculé)</th><th>Encours (calculé)</th><th>Encours sain</th><th>PAR0</th><th>PAR30 %</th><th>État</th></tr></thead>
+                    <tbody>{objectiveImport.preview.rows.map((row) => (
+                      <tr key={row.agency_id}><td>{row.agency_name}</td><td>{money(row.target_par_1_30)}</td><td>{money(row.target_par_31_60)}</td><td>{money(row.target_par_30)}</td><td>{money(row.target_outstanding)}</td><td>{money(row.target_healthy_outstanding)}</td><td>{percent(row.target_par_0)}</td><td>{percent(row.target_par)}</td><td>{row.existing ? "Existe déjà" : "Nouveau"}</td></tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+                {objectiveImport.preview.can_import && objectiveImport.preview.period_available && !objectiveImport.choosingMode && (
+                  <div className="button-row">
+                    <button type="button" className="icon-button" onClick={clearObjectivesExcelSelection}>Annuler</button>
+                    <button type="button" className="primary fit" disabled={objectiveImport.loading} onClick={() => objectiveImport.preview.existing_count ? setObjectiveImport((current) => ({ ...current, choosingMode: true })) : confirmObjectivesExcel("update")}>Confirmer l’import</button>
+                  </div>
+                )}
+                {objectiveImport.choosingMode && (
+                  <div className="import-existing-choice">
+                    <strong>{objectiveImport.preview.existing_count} objectif(s) existe(nt) déjà pour cette période.</strong>
+                    <span className="muted">Mettre à jour modifie uniquement les champs issus d’Excel ; ignorer ne modifie aucun objectif existant.</span>
+                    <div className="button-row"><button type="button" className="icon-button" onClick={() => setObjectiveImport((current) => ({ ...current, choosingMode: false }))}>Annuler</button><button type="button" className="icon-button" onClick={() => confirmObjectivesExcel("skip")}>Ignorer</button><button type="button" className="primary fit" onClick={() => confirmObjectivesExcel("update")}>Mettre à jour</button></div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         <div className="segment-control" role="tablist" aria-label="Type objectif">
           <button
             role="tab"

@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from datetime import datetime
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from datetime import date, datetime
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session, joinedload
 
@@ -9,6 +9,12 @@ from app.models.entities import Agency, Agent, Target, User
 from app.models.enums import TargetType, UserRole
 from app.schemas.common import Message, Page
 from app.schemas.domain import TargetCreate, TargetRead, TargetUpdate
+from app.services.objective_excel_import import (
+    MAX_OBJECTIVES_EXCEL_BYTES,
+    build_objective_import_preview,
+    import_objectives,
+)
+from app.services.objective_active_period import calculate_active_period
 from app.services.data_scope import get_user_data_scope, region_scope_condition
 
 router = APIRouter(
@@ -16,6 +22,31 @@ router = APIRouter(
     tags=["targets"],
     dependencies=[Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.AGENCY_MANAGER, UserRole.PORTFOLIO_MANAGER, UserRole.REGIONAL_MANAGER_NORD, UserRole.REGIONAL_MANAGER_SUD]))],
 )
+
+
+def _ensure_objective_excel_import_permission(user: User) -> None:
+    """Agency objectives are manually writable by Super Admin only."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "forbidden", "message": "Seul le Super Admin peut importer des objectifs agence"},
+        )
+
+
+async def _read_objectives_excel(file: UploadFile) -> tuple[bytes, str]:
+    filename = file.filename or ""
+    if not filename.lower().endswith(".xlsx"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "invalid_file", "message": "Format non autorisé : utilisez un fichier Excel .xlsx"},
+        )
+    content = await file.read(MAX_OBJECTIVES_EXCEL_BYTES + 1)
+    if len(content) > MAX_OBJECTIVES_EXCEL_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "file_too_large", "message": "Le fichier Excel dépasse la taille maximale autorisée (10 Mo)"},
+        )
+    return content, filename
 
 
 def _apply_user_scope(user: User, filters: list):
@@ -66,6 +97,26 @@ def _ensure_target_write_permission(user: User, payload: TargetCreate | TargetUp
             "message": "This role has read-only access to objectives",
         },
     )
+
+
+def _apply_default_active_period(
+    payload: TargetCreate | TargetUpdate,
+    reference_date: date | None = None,
+) -> TargetCreate | TargetUpdate:
+    """Set the automatic period for a new agency objective when omitted.
+
+    Explicit values are left intact so the existing Super Admin edit capability
+    remains available.  Existing objectives are never passed through this
+    helper by the update route.
+    """
+    resolved = payload.model_copy(deep=True)
+    if (
+        resolved.target_type == TargetType.AGENCY
+        and resolved.active_from is None
+        and resolved.active_until is None
+    ):
+        resolved.active_from, resolved.active_until = calculate_active_period(reference_date)
+    return resolved
 
 
 def _ensure_target_mutation_scope(user: User, target: Target) -> None:
@@ -189,8 +240,9 @@ def create_target(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    _ensure_target_write_permission(user, payload)
-    resolved_payload = _resolve_agency_target_period(db, payload)
+    resolved_payload = _apply_default_active_period(payload)
+    _ensure_target_write_permission(user, resolved_payload)
+    resolved_payload = _resolve_agency_target_period(db, resolved_payload)
     _validate_agent_scope(db, resolved_payload)
 
     duplicate = db.scalar(select(Target).where(_duplicate_condition(resolved_payload)))
@@ -210,6 +262,55 @@ def create_target(
     db.commit()
     db.refresh(target)
     return target
+
+
+@router.post("/import/preview")
+async def preview_objectives_excel_import(
+    file: UploadFile = File(...),
+    month: int | None = Form(default=None),
+    year: int | None = Form(default=None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _ensure_objective_excel_import_permission(user)
+    content, filename = await _read_objectives_excel(file)
+    try:
+        return build_objective_import_preview(db, content, filename, month, year)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "objectives_excel_validation_error", "message": str(exc)},
+        ) from exc
+
+
+@router.post("/import/confirm")
+async def confirm_objectives_excel_import(
+    file: UploadFile = File(...),
+    mode: str = Form(...),
+    month: int | None = Form(default=None),
+    year: int | None = Form(default=None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _ensure_objective_excel_import_permission(user)
+    content, filename = await _read_objectives_excel(file)
+    try:
+        return import_objectives(db, content, filename, user, mode, month, year)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "objectives_excel_import_error", "message": str(exc)},
+        ) from exc
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "code": "objectives_excel_import_failed",
+                "message": "L'import a échoué. Aucun objectif n'a été modifié.",
+            },
+        ) from exc
 
 
 @router.put("/{target_id}", response_model=TargetRead)

@@ -859,6 +859,207 @@ textarea {
   grid-template-columns: 1fr;
 }
 
+.objectives-excel-import {
+  margin: 0 0 20px;
+  padding: 20px;
+  border: 1px solid #dbe3ef;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 5px 18px rgb(15 23 42 / 5%);
+}
+
+.objectives-import-card-header {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.objectives-import-card-header h3,
+.objectives-import-card-header p {
+  margin: 0;
+}
+
+.objectives-import-card-header .muted {
+  margin-top: 4px;
+}
+
+.objectives-import-icon {
+  align-items: center;
+  background: #e0f2fe;
+  border-radius: 10px;
+  color: #0369a1;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 40px;
+  justify-content: center;
+  width: 40px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+.objectives-import-dropzone {
+  align-items: center;
+  background: #f8fafc;
+  border: 1.5px dashed #94a3b8;
+  border-radius: 12px;
+  color: #334155;
+  cursor: pointer;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  min-height: 174px;
+  padding: 22px;
+  text-align: center;
+  transition: border-color 160ms ease, background-color 160ms ease;
+}
+
+.objectives-import-dropzone:hover,
+.objectives-import-dropzone.is-dragging {
+  background: #f0f9ff;
+  border-color: #0284c7;
+}
+
+.objectives-import-dropzone:focus-visible {
+  outline: 3px solid rgb(14 165 233 / 40%);
+  outline-offset: 3px;
+}
+
+.objectives-import-dropzone .primary {
+  pointer-events: none;
+}
+
+.objectives-import-file-ready {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #dbe3ef;
+  border-radius: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  justify-content: space-between;
+  padding: 14px;
+}
+
+.objectives-import-file-name {
+  align-items: center;
+  color: #0369a1;
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+}
+
+.objectives-import-file-name div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.objectives-import-file-name strong {
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.objectives-import-file-name span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.objectives-import-reassurance {
+  color: #475569;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 6px 16px;
+  margin-top: 12px;
+}
+
+.objectives-import-reassurance span::first-letter {
+  color: #15803d;
+}
+
+.objectives-import-loading {
+  align-items: center;
+  color: #0369a1;
+  display: flex;
+  font-size: 13px;
+  font-weight: 700;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.loading-dot {
+  animation: objectives-import-pulse 900ms ease-in-out infinite;
+  background: #0284c7;
+  border-radius: 50%;
+  height: 8px;
+  width: 8px;
+}
+
+@keyframes objectives-import-pulse {
+  50% { opacity: .35; transform: scale(.72); }
+}
+
+.objectives-import-preview {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.import-preview-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  color: #334155;
+}
+
+.import-errors {
+  padding: 12px;
+  border-left: 4px solid #dc2626;
+  border-radius: 6px;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.import-existing-choice {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  background: #fffbeb;
+}
+
+.align-end {
+  align-items: end;
+}
+
+@media (max-width: 640px) {
+  .objectives-excel-import {
+    padding: 16px;
+  }
+
+  .objectives-import-file-ready,
+  .objectives-import-file-ready .button-row {
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .objectives-import-file-ready .button-row > * {
+    flex: 1;
+  }
+}
+
 .taeg-stack,
 .configuration-stack {
   display: grid;

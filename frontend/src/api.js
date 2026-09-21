@@ -204,6 +204,21 @@ export const api = {
   createTarget: (payload) => request("/targets", { method: "POST", body: JSON.stringify(payload) }),
   updateTarget: (id, payload) => request(`/targets/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteTarget: (id) => request(`/targets/${id}`, { method: "DELETE" }),
+  previewObjectivesExcel: (file, period = {}) => {
+    const body = new FormData();
+    body.append("file", file);
+    if (period.month) body.append("month", String(period.month));
+    if (period.year) body.append("year", String(period.year));
+    return request("/targets/import/preview", { method: "POST", body });
+  },
+  confirmObjectivesExcel: (file, mode, period = {}) => {
+    const body = new FormData();
+    body.append("file", file);
+    body.append("mode", mode);
+    if (period.month) body.append("month", String(period.month));
+    if (period.year) body.append("year", String(period.year));
+    return request("/targets/import/confirm", { method: "POST", body });
+  },
   parReductionTargets: (params = {}) => request(`/par-reduction-targets?${cleanParams(params)}`),
   parReductionAgencySummary: (params = {}) => request(`/par-reduction-targets/agency-summary?${cleanParams(params)}`),
   createParReductionTarget: (payload) => request("/par-reduction-targets", { method: "POST", body: JSON.stringify(payload) }),
